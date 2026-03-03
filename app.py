@@ -28,7 +28,7 @@ from filters import (
     UniformNoise, GaussianNoise, SaltAndPepperNoise,
     AverageFilter, GaussianFilter, MedianFilter,
     SobelEdge, RobertsEdge, PrewittEdge, CannyEdge,
-    HistogramEqualizer, ImageNormalizer, OtsuThreshold,
+    HistogramEqualizer, ImageNormalizer,
     LowPassFreqFilter, HighPassFreqFilter, HybridImageCreator,
 )
 from utils.histogram import plot_gray_histogram, plot_rgb_histograms
@@ -246,6 +246,10 @@ with st.sidebar:
 # Guard — need an image
 # ──────────────────────────────────────────────
 if uploaded is None:
+    # Clear any cached image when no file is uploaded
+    st.session_state.pop("original_image", None)
+    st.session_state.pop("image", None)
+    st.session_state.pop("noisy_image", None)
     st.markdown("""
     <div style="text-align:center; padding: 80px 20px;">
         <div class="hero-title" style="font-size:3rem;">🔬 Image Processing Lab</div>
@@ -254,13 +258,24 @@ if uploaded is None:
         </div>
         <div style="margin-top:32px; color:#3d3d5c; font-family:'Space Mono',monospace; font-size:12px;">
             Noise • Smoothing • Edge Detection • Histogram • Equalization<br>
-            Normalization • Thresholding • Frequency Domain • Hybrid Images
+            Normalization • Frequency Domain • Hybrid Images
         </div>
     </div>
     """, unsafe_allow_html=True)
     st.stop()
 
-image = load_image(uploaded)
+# ── Load image ONCE and cache in session state ──
+_upload_id = uploaded.file_id
+if st.session_state.get("_upload_id") != _upload_id:
+    # New file uploaded — decode once and store
+    _loaded = load_image(uploaded)
+    st.session_state["_upload_id"] = _upload_id
+    st.session_state["original_image"] = _loaded
+    st.session_state["image"] = _loaded.copy()
+    st.session_state.pop("noisy_image", None)
+
+original_image = st.session_state["original_image"]  # never modified
+image = st.session_state["image"]                     # current working image
 
 
 # ══════════════════════════════════════════════
@@ -318,12 +333,25 @@ elif section == "🌫️  Noise":
         density = st.slider("Noise Density", 0.01, 0.3, 0.05, 0.01)
         filt = SaltAndPepperNoise(density)
 
-    if st.button("Apply Noise"):
+    btn_col1, btn_col2 = st.columns(2)
+    with btn_col1:
+        apply_pressed = st.button("Apply Noise")
+    with btn_col2:
+        undo_pressed = st.button("↩ Undo Noise")
+
+    if apply_pressed:
         result = filt.apply(image)
         st.session_state["noisy_image"] = result
+        st.session_state["image"] = result  # update working image
+
+    if undo_pressed:
+        st.session_state["image"] = original_image.copy()
+        st.session_state.pop("noisy_image", None)
+        st.rerun()
 
     if "noisy_image" in st.session_state:
-        show_image_pair(image, st.session_state["noisy_image"], "Original", f"+ {noise_type} Noise")
+        show_image_pair(original_image, st.session_state["noisy_image"],
+                        "Original", f"+ {noise_type} Noise")
 
 
 # ── Smoothing ─────────────────────────────────
@@ -403,8 +431,7 @@ elif section == "📊  Histogram":
 elif section == "✨  Enhancement":
     st.markdown('<div class="hero-title">Enhancement</div>', unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4 = st.tabs(["Equalization", "Normalization",
-                                       "Thresholding", "Color→Gray"])
+    tab1, tab2, tab3 = st.tabs(["Equalization", "Normalization", "Color→Gray"])
 
     with tab1:
         st.markdown('<div class="badge badge-green">CDF mapping — from scratch</div>',
@@ -428,14 +455,8 @@ elif section == "✨  Enhancement":
         result = filt.apply(image)
         show_image_pair(image, result, "Original", "Normalized")
 
-    with tab3:
-        st.markdown('<div class="badge badge-green">Otsu\'s method — from scratch</div>',
-                    unsafe_allow_html=True)
-        filt = OtsuThreshold()
-        result = filt.apply(image)
-        show_image_pair(image, result, "Original", "Binary (Otsu)")
 
-    with tab4:
+    with tab3:
         st.markdown("### Color → Grayscale + RGB Histograms")
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         c1, c2 = st.columns(2)
@@ -493,7 +514,7 @@ elif section == "🔀  Hybrid Images":
         image_b = load_image(uploaded_b)
 
         # Resize image_b to match image_a
-        h, w = image[:2] if image.ndim == 2 else image.shape[:2]
+        h, w = image.shape[:2]
         image_b_resized = cv2.resize(image_b, (w, h))
 
         col1, col2, col3 = st.columns(3)

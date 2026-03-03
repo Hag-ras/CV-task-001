@@ -3,16 +3,14 @@ Low-pass (smoothing) filter implementations from scratch.
 Average, Gaussian, and Median filters.
 """
 import numpy as np
-from .base import KernelFilter, ImageFilter
 from numpy.lib.stride_tricks import sliding_window_view
+from .base import KernelFilter, ImageFilter
 
 
 class AverageFilter(KernelFilter):
     """Box/averaging filter using convolution."""
 
     def __init__(self, kernel_size: int = 3):
-        # CRITICAL: Call parent constructor to initialize _kernel_cache
-        super().__init__()
         self._ksize = kernel_size
 
     @property
@@ -28,17 +26,13 @@ class AverageFilter(KernelFilter):
         return np.ones((k, k), dtype=np.float64) / (k * k)
 
     def apply(self, image: np.ndarray) -> np.ndarray:
-        kernel = self.get_kernel()
-        # Use normalize=False since kernel already sums to 1
-        return self._convolve(image, kernel, normalize=False)
+        return self._convolve(image, self.get_kernel())
 
 
 class GaussianFilter(KernelFilter):
     """Gaussian blur filter with hand-crafted kernel."""
 
     def __init__(self, kernel_size: int = 3, sigma: float = 1.0):
-        # CRITICAL: Call parent constructor to initialize _kernel_cache
-        super().__init__()
         self._ksize = kernel_size
         self._sigma = sigma
 
@@ -58,33 +52,13 @@ class GaussianFilter(KernelFilter):
         return kernel / kernel.sum()
 
     def apply(self, image: np.ndarray) -> np.ndarray:
-        kernel = self.get_kernel()
-        
-        # For larger kernels, use separable optimization (much faster)
-        if self._ksize > 5:  # Only optimize for larger kernels
-            return self._apply_separable(image)
-        
-        return self._convolve(image, kernel, normalize=False)
-    
-    def _apply_separable(self, image: np.ndarray) -> np.ndarray:
-        """
-        Apply Gaussian filter using separable convolution.
-        This is 10-50x faster for large kernels while maintaining exact same result.
-        """
-        # Create 1D Gaussian kernel
-        k = self._ksize
-        ax = np.linspace(-(k // 2), k // 2, k)
-        kernel_1d = np.exp(-(ax ** 2) / (2 * self._sigma ** 2))
-        kernel_1d = kernel_1d / kernel_1d.sum()
-        
-        # Use separable convolution (two 1D passes)
-        return self._convolve_separable(image, kernel_1d, kernel_1d)
+        return self._convolve(image, self.get_kernel())
 
 
 class MedianFilter(ImageFilter):
     """
     Median filter implemented from scratch.
-    Uses sliding window median (not convolution — median is non-linear).
+    Uses sliding window median (non-linear, not convolution).
     """
 
     def __init__(self, kernel_size: int = 3):
@@ -105,53 +79,12 @@ class MedianFilter(ImageFilter):
         return np.stack(channels, axis=2)
 
     def _apply_channel(self, channel: np.ndarray) -> np.ndarray:
-        """
-        Optimized median filter using vectorized operations.
-        Maintains exact same logic but runs much faster.
-        """
+        """Vectorised median filter using sliding_window_view."""
         k = self._ksize
         pad = k // 2
-        
-        # Reflect padding (same as before)
         padded = np.pad(channel.astype(np.float64), pad, mode='reflect')
         h, w = channel.shape
-        
-        # ORIGINAL LOGIC (commented out):
-        # for i in range(h):
-        #     for j in range(w):
-        #         region = padded[i:i + k, j:j + k].flatten()
-        #         output[i, j] = np.median(region)
-        
-        # OPTIMIZED VERSION (same logic, vectorized):
-        # Create sliding windows - this creates a view, no data copy
+
         windows = sliding_window_view(padded, (k, k))
-        
-        # Reshape windows to 2D array where each row is a neighborhood
-        # Shape: (h, w, k, k) -> (h*w, k*k)
-        windows_flat = windows.reshape(h * w, -1)
-        
-        # Calculate median along each row (vectorized operation)
-        medians = np.median(windows_flat, axis=1)
-        
-        # Reshape back to image dimensions
-        output = medians.reshape(h, w)
-        
-        return output.astype(np.uint8)
-    
-    def _apply_channel_original(self, channel: np.ndarray) -> np.ndarray:
-        """
-        Keep original implementation as reference.
-        This is slower but maintained for educational purposes.
-        """
-        k = self._ksize
-        pad = k // 2
-        padded = np.pad(channel.astype(np.float64), pad, mode='reflect')
-        h, w = channel.shape
-        output = np.zeros((h, w), dtype=np.float64)
-
-        for i in range(h):
-            for j in range(w):
-                region = padded[i:i + k, j:j + k].flatten()
-                output[i, j] = np.median(region)
-
-        return output.astype(np.uint8)
+        medians = np.median(windows.reshape(h * w, -1), axis=1)
+        return medians.reshape(h, w).astype(np.uint8)
