@@ -28,8 +28,12 @@ streamlit run app.py
     ├── smoothing.py            # AverageFilter, GaussianFilter, MedianFilter
     ├── edge.py                 # SobelEdge, RobertsEdge, PrewittEdge, CannyEdge
     └── enhancement.py          # Equalization, Normalization, Thresholding, FrequencyFilters, HybridImageCreator
-└── utils/
+├── utils/
     └── histogram.py            # Histogram + CDF plotting utilities
+└── test/
+    ├── images/
+    ├── test_outputs/
+    └── test.py                
 ```
 
 ## What this project does
@@ -60,7 +64,6 @@ streamlit run app.py
 - Enhancement
     - Histogram Equalization — CDF-based LUT mapping
     - Normalization — min-max scaling to [0, 255]
-    - Otsu Thresholding — implemented from scratch
     - Frequency Filters — `np.fft.fft2` with circular masks (low/high-pass)
     - Hybrid Images — combine low-frequency of one image with high-frequency of another
 
